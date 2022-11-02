@@ -42,7 +42,7 @@ def load_vehicle_positions():
         print(i)
         with open(i, "r") as read_file:
             data = json.load(read_file)
-            normal_json = json_normalize(data)
+            normal_json = json_normalize(data,key_joiner = "_")
             df = pd.DataFrame(normal_json)
             if TO_SQL:
                 df["file"] = i
