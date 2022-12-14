@@ -1,0 +1,5 @@
+src/stib_ui/cache/cache.db
+src/stib_ui/cache/cache.db-shm
+src/stib_ui/cache/cache.db-wal
+src/stib_ui/__pycache__/options.cpython-310.pyc
+src/stib_ui/__pycache__/timejoin.cpython-310.pyc
