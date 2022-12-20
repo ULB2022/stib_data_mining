@@ -1,3 +1,5 @@
+"""Creates map for ui.
+"""
 import os
 import folium
 import pandas as pd
@@ -60,25 +62,17 @@ def map_maker(mode, line, direction, stop_name):
     layer1.add_to(map)
     # str(data[i]).rjust(3, "0")
     line_e = f"{line}{mode.lower()}".rjust(4, "0")
-    print(line_e)
-    # print(f"{line}{mode}")
-    # df[df.name.str.match(regex)]
-    # print(lines_gdf['LIGNE'].drop_duplicates())
-    # print(lines_gdf.LIGNE.str.match(f"[0]*{line}{mode}"))
-    # filtered_line= lines_gdf[lines_gdf.LIGNE.str.match(f"[0]*{line}{mode}")]
     filtered_line = lines_gdf.loc[
         (lines_gdf["VARIANTE"] == direction + 1)
      & 
      (lines_gdf["LIGNE"] == line_e)
      ]
-    print(filtered_line.head())
     layer2 = folium.GeoJson(
         data=filtered_line,
         popup=folium.GeoJsonPopup(["LIGNE"]),
         name=f"line {mode}",
         style_function=lambda x: {
             "color": "red",
-            # x['properties']['COLOR_HEX'],
             "weight": 10,
             "opacity": 1,
         },
@@ -95,6 +89,3 @@ def map_maker(mode, line, direction, stop_name):
         ).add_to(map)
     map.save(f"data/test_{mode}_{line}_{direction}.html")
     return f"data/test_{mode}_{line}_{direction}.html"
-
-
-# map_maker("T", 7, 0, "GOSSART")

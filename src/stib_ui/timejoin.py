@@ -1,20 +1,13 @@
+"""Main logic engine for complete interface."""
+from datetime import date, datetime, timedelta
 import numpy as np
-
-
-from sqlalchemy import create_engine
 import pandas as pd
-import pyarrow as pa
-from datetime import timedelta, datetime, date
 import plotly.express as px
+import pyarrow as pa
+from sqlalchemy import create_engine
 
 pd.options.plotting.backend = "plotly"
 engine = create_engine(f"postgresql://localhost:5432/dm")
-
-
-# +
-# date under consideration
-
-cd_date = "2021-09-12"
 
 
 # -
@@ -35,15 +28,12 @@ def read_data_from_db(lineid=7, route_id=6, cd_date="2021-09-18"):
     df_gtfs = pd.read_sql(sql_gtfs, engine)
 
     df_real["dt"] = pd.to_datetime(df_real["local_time"], unit="ms")
-    # df_real.count()
-    # df_real.head()
 
 
 def get_dates(line_id, stop_id, direction):
     sql_dates = f"""select distinct(cast(cd_date as TEXT)) from "joinedsttcdebug_test" where route_id={line_id} and stop_id~'{stop_id}' and direction_id={direction} and cd_date>'2021-9-6';"""
     df_dates = pd.read_sql(sql_dates, engine)
     dt_dates = list(df_dates["cd_date"])
-    print(dt_dates)
     return dt_dates
 
 
@@ -55,8 +45,7 @@ def get_line():
 
 
 def read_mapped_data(route_id=6, cd_date="2021-09-18", direction=0, stop_id="8162"):
-    sql_gtfs = f"""select * from mapped_data_latest where route_id={route_id} and cd_date = '{cd_date}' and direction_id={direction} and stop_id ~'^[0]*{stop_id}[A-Z]*$' order by processed_arrival_datetime;"""
-    print(sql_gtfs)
+    sql_gtfs = f"""select * from corrected_mapped_data_latest where route_id={route_id} and cd_date = '{cd_date}' and direction_id={direction} and stop_id ~'^[0]*{stop_id}[A-Z]*$' order by processed_arrival_datetime;"""
     df_gtfs = pd.read_sql(sql_gtfs, engine)
     return df_gtfs
 
@@ -79,18 +68,129 @@ def inter_arrival_datetime(dataframe):
     return dataframe
 
 
+def inter_arrival_mapped_datetime(dataframe):
+    dataframe["lagging_time"] = dataframe["mapped_time"].shift(1)
+    dataframe["real_inter_arrival_time"] = dataframe.apply(
+        lambda x: (x["mapped_time"] - x["lagging_time"])
+        if x["lagging_time"] != np.nan
+        else 0,
+        axis=1,
+    )
+    dataframe["real_inter_arrival_time"] = (
+        dataframe["real_inter_arrival_time"]
+        .fillna(pd.Timedelta(seconds=0))
+        .astype("timedelta64[m]")
+        .astype(int)
+    )
+    dataframe = dataframe.drop(["lagging_time"], axis=1)
+    return dataframe
+
+
 def r(sql):
     data = pd.read_sql(sql, engine)
     return data
 
 
+def calculate_ewt_for_stop(df):
+    df_cluster_ewt = pd.DataFrame(
+        columns=["cluster", "start_time", "end_time", "regularity", "swt", "awt", "ewt"]
+    )
+    clusters = df["cluster_id"].unique()
+    df["iat2"] = df["inter_arrival_time"] ** 2
+    df["aiat2"] = df["real_inter_arrival_time"] ** 2
+    df.to_csv("delete_me.csv")
+    for cluster in clusters:
+        df_sliced = df[(df["cluster_id"] == cluster)]
+        regularity = df_sliced["regularity"].unique()[0]
+        if df_sliced.empty:
+            df_cluster_ewt = pd.concat(
+                [
+                    df_cluster_ewt,
+                    [
+                        cluster,
+                        min(df_sliced["processed_arrival_datetime"]),
+                        max(df_sliced["processed_arrival_datetime"]),
+                        regularity,
+                        0,
+                        0,
+                        0,
+                    ],
+                ]
+            )
+        elif regularity == 1:
+            swt = sum(df_sliced["iat2"]) / (
+                2 * sum(df_sliced["inter_arrival_time"])
+                if sum(df_sliced["inter_arrival_time"]) != 0
+                else 1
+            )
+            awt = (
+                sum(df_sliced["aiat2"])
+                / (
+                    2 * sum(df_sliced["real_inter_arrival_time"])
+                    if sum(df_sliced["real_inter_arrival_time"]) != 0
+                    else 1
+                )
+                if sum(df_sliced["real_inter_arrival_time"]) > 0
+                else 10000
+            )
+            ewt = awt - swt if (awt > swt) else 0
+            df_cluster_temp = pd.DataFrame(
+                [
+                    [
+                        cluster,
+                        min(df_sliced["processed_arrival_datetime"]),
+                        max(df_sliced["processed_arrival_datetime"]),
+                        regularity,
+                        swt,
+                        awt,
+                        ewt,
+                    ]
+                ],
+                columns=[
+                    "cluster",
+                    "start_time",
+                    "end_time",
+                    "regularity",
+                    "swt",
+                    "awt",
+                    "ewt",
+                ],
+            )
+            df_cluster_ewt = pd.concat([df_cluster_ewt, df_cluster_temp])
+        else:
+            df_cluster_temp = pd.DataFrame(
+                [
+                    [
+                        cluster,
+                        min(df_sliced["processed_arrival_datetime"]),
+                        max(df_sliced["processed_arrival_datetime"]),
+                        regularity,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ]
+                ],
+                columns=[
+                    "cluster",
+                    "start_time",
+                    "end_time",
+                    "regularity",
+                    "swt",
+                    "awt",
+                    "ewt",
+                ],
+            )
+            df_cluster_ewt = pd.concat([df_cluster_ewt, df_cluster_temp])
+    return df_cluster_ewt
+
+
 def add_marker(fig, route_id, direction, date):
     day = date.weekday()
     selected_date_cat = (
-        "WED" if day == 2 else "SAT" if day == 5 else "SUN" if day == 6 else "WEEKDAY"
+        "WED" if day == 2 else "SAT" if day == 5 else "SUN" if day == 6 else "EEKDAY"
     )
     date_string = date.strftime("%Y-%m-%d")
-    sql = f"""select "min"-'1970-01-01'::date+'{date_string}'::date as head,"max"-'1970-01-01'::date+'{date_string}'::date as tail,regularity_interval from cluster_intervals where route_id={route_id} and direction_id={direction} and date_cat='{selected_date_cat}' and method='Kmeans';"""
+    sql = f"""select "min"-'1970-01-01'::date+'{date_string}'::date as head,"max"-'1970-01-01'::date+'{date_string}'::date as tail,regularity_interval from cluster_intervals where route_id={route_id} and direction_id={direction} and date_cat='{selected_date_cat}'"""
     data = r(sql)
     for index, row in data.iterrows():
         fig.add_vrect(
@@ -98,11 +198,43 @@ def add_marker(fig, route_id, direction, date):
             x1=row["tail"],
             fillcolor="red" if row["regularity_interval"] == 0 else None,
             opacity=0.2,
-            annotation_text="regular" if row["regularity_interval"] == 1 else "punctual",
+            annotation_text="regular"
+            if row["regularity_interval"] == 1
+            else "punctual",
             annotation=dict(font_size=20, font_family="Times New Roman"),
-            # annotation_position="top",
         )
     return fig
+
+
+def mark_cluster(dataframe, route_id, direction, date):
+    day = date.weekday()
+    selected_date_cat = (
+        "WED" if day == 2 else "SAT" if day == 5 else "SUN" if day == 6 else "EEKDAY"
+    )
+    date_string = date.strftime("%Y-%m-%d")
+    sql = f"""select "min"-'1970-01-01'::date+'{date_string}'::date as head,"max"-'1970-01-01'::date+'{date_string}'::date as tail,regularity_interval from cluster_intervals where route_id={route_id} and direction_id={direction} and date_cat='{selected_date_cat}';"""
+    data = r(sql)
+    size = len(data)
+    minimum, maximum = data["head"].min(), data["tail"].max()
+
+    dataframe = dataframe.assign(cluster_id=None, regularity=0)
+    cluster_id = []
+    regularity = []
+    for index, row in dataframe.iterrows():
+        base_data = row["processed_arrival_datetime"]
+        i = -1
+        if minimum > base_data:
+            i = 0
+        elif maximum < base_data:
+            i = size - 1
+        else:
+            i = data[(data["head"] <= base_data) & (data["tail"] > base_data)].index[0]
+
+        cluster_id.append(i)
+        regularity.append(data.iloc[i]["regularity_interval"])
+    dataframe["cluster_id"] = cluster_id
+    dataframe["regularity"] = regularity
+    return dataframe
 
 
 def map_gtfs(
@@ -113,49 +245,73 @@ def map_gtfs(
     str_date = db_date.strftime("%Y-%-m-%-d")
     cd_date_gtfs = db_date.date()
 
-    # delta =timedelta(days=1)
-    print(route_id)
     gtfs = read_mapped_data(
         route_id=route_id, cd_date=str_date, direction=direction, stop_id=stop_id
     )
 
-    print("all_data", direction, cd_date_gtfs, stop_id)
     gtfs = inter_arrival_datetime(gtfs)
-    # gtfs["mapped_time"] = gtfs["mapped_time"].array.astype("datetime64[ns]")
+    gtfs = inter_arrival_mapped_datetime(gtfs)
 
+    # gtfs["mapped_time"] = gtfs["mapped_time"].array.astype("datetime64[ns]")
+    if content == "ewt":
+        gtfs = mark_cluster(gtfs, route_id=route_id, direction=direction, date=db_date)
+        ewt = calculate_ewt_for_stop(gtfs)
+        ewt["regularity"] = ewt["regularity"].apply(
+            lambda x: "Regular" if x == 1 else "Punctual"
+        )
+        return ewt
     gtfs.loc[gtfs["delay_in_min"] <= 0, "delay_in_min"] = 0
     if content == "table":
         return gtfs
     # Graph it out
     fig = None
+    gtfs.info()
     if content == "headway":
-        fig = gtfs[["processed_arrival_datetime", "inter_arrival_time"]].plot.bar(
+        inter_arrival_df = gtfs.loc[
+            :, ["processed_arrival_datetime", "inter_arrival_time"]
+        ].copy()
+        inter_arrival_df["type"] = "scheduled"
+        real_arrival_df = gtfs.loc[
+            :, ["processed_arrival_datetime", "real_inter_arrival_time"]
+        ].copy()
+        real_arrival_df = real_arrival_df.rename(
+            columns={"real_inter_arrival_time": "inter_arrival_time"}
+        )
+        real_arrival_df["type"] = "real"
+        result = [inter_arrival_df, real_arrival_df]
+        final_df = pd.concat(result)
+        fig = px.bar(
+            final_df,
             x="processed_arrival_datetime",
             y="inter_arrival_time",
-            color="inter_arrival_time",
-            width=100,
-            color_continuous_scale=px.colors.sequential.Viridis,
+            color="type",
+            labels={
+                "inter_arrival_time": "Inter Arrival Time",
+                "processed_arrival_datetime": "Processed Arrival Datetime",
+            },
+            height=400,
+            color_discrete_map={"real": "red", "scheduled": "green"},
         )
-        # fig = px.bar(gtfs, x='processed_arrival_datetime', y='delay_in_secs',color="delay_in_secs", color_continuous_scale=px.colors.sequential.Viridis)
-        # fig = px.bar(gtfs, x='processed_arrival_datetime', y='inter_arrival_time').update_traces(mode='lines+markers')
-        # fig1.show()
-        # fig.update_traces(width=5)
-        fig.add_hline(y=0)
-        fig.add_hrect(y0=12, y1=20, line_width=0, fillcolor="red", opacity=0.2)
+        fig.update_layout(
+            yaxis_range=[0, 50],
+            template="plotly_white",
+            title=f"Headway {route_id} {stop_id} {direction}",
+        )
+        fig.add_hline(y=12, line_width=1)
     elif content == "delay":
-        # [["processed_arrival_datetime", "delay_in_min", "mapped_time"]]
         fig = gtfs.plot.bar(
             x="processed_arrival_datetime",
-            y="delay_in_min",
+            y="interplolated_delay_in_min",
             color="delay_in_min",
+            # title=f"{route_id} {stop_id} {direction} Delay",
             color_continuous_scale=px.colors.sequential.Viridis,
             labels={"mapped_time": "Mapped time"},
             width=15,
         )
-        fig.add_hline(y=0)
-        fig.add_hrect(y0=4, y1=20, line_width=0, fillcolor="red", opacity=0.2)
+        fig.update_layout(
+            template="plotly_white", title=f"Delay {route_id} {stop_id} {direction}"
+        )
+
+        fig.add_hline(y=4, line_width=1)
     fig = add_marker(fig, route_id, direction, db_date)
     return fig
-
-
-# map_gtfs(route_id =58, stop_id=3921, direction=0,cd_date="2021-09-11").head()

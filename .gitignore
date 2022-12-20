@@ -3,3 +3,6 @@ src/stib_ui/cache/cache.db-shm
 src/stib_ui/cache/cache.db-wal
 src/stib_ui/__pycache__/options.cpython-310.pyc
 src/stib_ui/__pycache__/timejoin.cpython-310.pyc
+src/__pycache__/initial_setup.cpython-310.pyc
+src/.DS_Store
+*.DS_Store*

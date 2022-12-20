@@ -199,7 +199,7 @@ for line, variants in all_lines.items():
             d=0
         elif point==first_station_1:
             d=1
-        elif (point in variants["0"]) and (point not in variants["1"] ):
+        elif (point in variants["0"]) and (point not in variants["1"]):
             d = 0
         elif (point in variants["1"]) and (point not in variants["0"]):
             d = 1
