@@ -36,7 +36,7 @@ I have multiple options to choose from and multiple to click on.
 ## DEVELOPERS
 
 
-| Adina        | Koumudi           | Prashant  | Rishika  |
-| :-------------: |:-------------:|: -----:|:-----:|
+Adina | Koumudi | Prashant | Rishika |
+--- | --- | --- | --- |
 | <img src="./assets/adina.jpg" width="200" height="200" /> | <img src="./assets/koumudi.jpg" width="200" height="200" /> | <img src="./assets/prashant.jpg" width="200" height="200" /> |<img src="./assets/rishika.jpg" width="200" height="200" />|
 
